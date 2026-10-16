@@ -1,0 +1,6 @@
+.dashro.pass
+data/
+venv/
+__pycache__/
+*.pyc
+chunk_*.js

@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llamaDash — LLM inference fleet</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121826; --panel2:#0f1420; --line:#1f2a3d;
+    --fg:#e6edf3; --mut:#8b98ab; --dim:#5b6675;
+    --acc:#4ea1ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+    --local:#3fb950; --online:#4ea1ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--acc);text-decoration:none}
+  header{display:flex;align-items:center;gap:14px;padding:12px 18px;
+    border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,14,20,.92);backdrop-filter:blur(6px);z-index:5;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .sub{color:var(--mut);font-size:12px}
+  .spacer{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mut);
+    border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--off,#6e7681)}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.off{background:var(--bad)}
+  main{padding:16px 18px;max-width:1500px;margin:0 auto}
+  section{margin-bottom:22px}
+  .sec-head{display:flex;align-items:center;gap:10px;margin:0 0 10px;flex-wrap:wrap}
+  .sec-head h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0}
+  .grid{display:grid;gap:14px}
+  .nodes{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
+  .cards{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  .stat{padding:12px 14px}
+  .stat .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+  .stat .v{font-size:24px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+  .stat .s{font-size:12px;color:var(--mut);margin-top:2px}
+  .bar{height:6px;border-radius:4px;background:#0a0f18;overflow:hidden;margin:3px 0}
+  .bar>div{height:100%;border-radius:4px}
+  .node{padding:0;overflow:hidden}
+  .node .nh{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
+  .node .nh .nm{font-weight:650;font-size:15px}
+  .node .nh .meta{color:var(--dim);font-size:11.5px}
+  .badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;border:1px solid}
+  .b-off{color:#ffb3ad;border-color:#5a2320;background:#2a1414}
+  .b-unloaded{color:#c8d1dc;border-color:#39465a;background:#161d29}
+  .b-idle{color:#b6f0c0;border-color:#2a5a34;background:#12271a}
+  .b-loading{color:#ffe3a3;border-color:#6a4d18;background:#2a2110}
+  .b-prefill{color:#bfe0ff;border-color:#274a6d;background:#102130}
+  .b-generating{color:#b6f0c0;border-color:#2a5a34;background:#12271a}
+  .b-processing{color:#ffe3a3;border-color:#6a4d18;background:#2a2110}
+  .node .nb{padding:12px 14px}
+  .row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;margin:3px 0}
+  .row .l{color:var(--mut)}
+  .row .r{font-variant-numeric:tabular-nums;font-weight:550}
+  .kv-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-size:11.5px;border:1px solid var(--line);border-radius:6px;padding:3px 8px;background:var(--panel2);color:var(--fg);display:inline-flex;align-items:center;gap:5px}
+  .chip .st{color:var(--mut);font-size:10px}
+  .nowbox{margin-top:10px;border:1px solid var(--line);border-radius:8px;padding:9px 11px;background:var(--panel2)}
+  .nowbox .t{font-size:12px;color:var(--mut);margin-bottom:5px}
+  .nowbox .m{font-size:14px;font-weight:650}
+  .stream{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--gen,#2ea043);margin-left:6px;animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .details{display:none;border-top:1px solid var(--line);padding:12px 14px;background:var(--panel2)}
+  .node.open .details{display:block}
+  .toggle{cursor:pointer;color:var(--acc);font-size:12px;user-select:none}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  button{font:inherit;font-size:12px;background:#1a2436;color:var(--fg);border:1px solid var(--line);
+    border-radius:7px;padding:6px 11px;cursor:pointer}
+  button:hover{border-color:var(--acc);background:#1f2c42}
+  button.danger{color:#ffb3ad;border-color:#5a2320;background:#241414}
+  button.danger:hover{border-color:var(--bad);background:#3a1a18}
+  button.sm{padding:3px 8px;font-size:11px}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .chart-wrap{padding:14px 16px}
+  .chart{display:block;margin-top:8px}
+  .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;min-width:3px;position:relative}
+  .col .stack{width:100%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:2px 2px 0 0;overflow:hidden}
+  .col .seg-on{background:var(--online)}
+  .col .seg-loc{background:var(--local)}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--mut);margin-top:10px}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .rangebar{display:flex;gap:6px}
+  .rangebar button.active{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:650}
+  .axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);margin-top:6px}
+  .mcols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .mcol h4{font-size:12px;color:var(--mut);margin:0 0 8px;text-transform:uppercase;letter-spacing:.5px}
+  .mrow{display:flex;align-items:center;gap:8px;font-size:12px;margin:4px 0}
+  .mrow .name{flex:1;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mrow .n{color:var(--mut);font-variant-numeric:tabular-nums}
+  .mrow .bar{flex-basis:110px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .on{color:var(--ok);font-weight:600}
+  .offw{color:var(--mut)}
+  .sw{cursor:pointer;font-weight:700;font-size:12px;user-select:none}
+  .sw.on{color:var(--ok)} .sw.off{color:var(--dim)}
+  .form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:12px 14px}
+  .form label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mut)}
+  .form input,.form select{background:#0a0f18;border:1px solid var(--line);border-radius:6px;color:var(--fg);
+    font:inherit;font-size:12.5px;padding:6px 8px}
+  .days{display:flex;gap:4px}
+  .days label{flex-direction:row;align-items:center;gap:3px;font-size:11px;color:var(--mut)}
+  .log{font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;padding:10px 14px;max-height:220px;overflow:auto}
+  .log .e{display:flex;gap:10px;padding:2px 0;border-bottom:1px solid #131b29}
+  .log .t{color:var(--dim);flex-shrink:0}
+  .log .a{font-weight:600}
+  .log .a.load{color:var(--ok)} .log .a.unload{color:var(--acc)} .log .a.error,.log .a.preview{color:var(--warn)}
+  .empty{color:var(--dim);font-size:12.5px;padding:14px;text-align:center}
+  .toast{position:fixed;bottom:18px;right:18px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--acc);border-radius:8px;padding:10px 14px;font-size:12.5px;
+    opacity:0;transform:translateY(8px);transition:.2s;z-index:20;max-width:340px}
+  .toast.show{opacity:1;transform:none}
+  @media(max-width:720px){.mcols{grid-template-columns:1fr}.kv-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>llamaDash</h1>
+  <span class="sub">LLM inference fleet</span>
+  <span class="pill"><span class="dot" id="hd-dot"></span><span id="hd-online">–</span> nodes</span>
+  <span class="pill" id="hd-enforce">–</span>
+  <span class="spacer"></span>
+  <span class="pill" id="hd-upd">updating…</span>
+</header>
+<main>
+  <!-- SECTION 1 : GLOBAL -->
+  <section id="global-sec">
+    <div class="sec-head">
+      <h2>Global traffic</h2>
+      <div class="spacer"></div>
+      <div class="rangebar" id="rangebar">
+        <button data-r="1h">1h</button><button data-r="1d" class="active">1d</button>
+        <button data-r="1M">1M</button><button data-r="all">all</button>
+      </div>
+    </div>
+    <div class="grid cards" id="g-stats"></div>
+    <div class="panel chart-wrap" style="margin-top:14px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <h4 style="margin:0;font-size:13px">Requests over time</h4>
+        <div class="spacer"></div>
+        <div class="legend"><span><i style="background:var(--local)"></i>local GPU</span><span><i style="background:var(--online)"></i>online</span></div>
+      </div>
+      <div class="chart" id="chart-req"></div>
+      <div class="axis" id="axis-req"></div>
+      <h4 style="margin:18px 0 0;font-size:13px">Tokens over time</h4>
+      <div class="chart" id="chart-tok" style="height:150px"></div>
+      <div class="axis" id="axis-tok"></div>
+    </div>
+    <div class="panel" style="margin-top:14px"><div class="mcols" style="padding:14px 16px">
+      <div class="mcol"><h4>Top local models</h4><div id="m-local"><div class="empty">–</div></div></div>
+      <div class="mcol"><h4>Top online models</h4><div id="m-online"><div class="empty">–</div></div></div>
+    </div></div>
+  </section>
+
+  <!-- SECTION 2 : NODES -->
+  <section>
+    <div class="sec-head"><h2>Nodes</h2><div class="spacer"></div>
+      <button id="node-add-btn">+ Add node</button></div>
+    <div class="panel" id="node-form-panel" style="display:none">
+      <div class="form" id="node-form">
+        <label>name<input id="n-name" placeholder="worker01"></label>
+        <label>label<input id="n-label" placeholder="Worker 01 (A4000)"></label>
+        <label>ip<input id="n-ip" placeholder="192.168.1.100"></label>
+        <label>port<input id="n-port" type="number" value="8080"></label>
+        <button id="n-save">Add node</button>
+        <button id="n-clear" style="display:none">Cancel</button>
+      </div>
+    </div>
+    <div class="grid nodes" id="nodes"></div>
+  </section>
+
+  <!-- SECTION 3 : SCHEDULES -->
+  <section>
+    <div class="sec-head"><h2>Schedules</h2>
+      <span class="pill" id="sched-enforce">–</span></div>
+    <div class="panel">
+      <div class="form" id="sched-form">
+        <label>model<input id="s-model" placeholder="Qwen3.8-27B-UD-IQ3_S"></label>
+        <label>node<select id="s-node"></select></label>
+        <label>days
+          <span class="days" id="s-days">
+            <label><input type="checkbox" value="0" checked>M</label>
+            <label><input type="checkbox" value="1" checked>T</label>
+            <label><input type="checkbox" value="2" checked>W</label>
+            <label><input type="checkbox" value="3" checked>T</label>
+            <label><input type="checkbox" value="4" checked>F</label>
+            <label><input type="checkbox" value="5" checked>S</label>
+            <label><input type="checkbox" value="6" checked>S</label>
+          </span>
+        </label>
+        <label>on<input type="time" id="s-on" value="08:00"></label>
+        <label>off<input type="time" id="s-off" value="23:59"></label>
+        <label><input type="checkbox" id="s-enabled" checked> enabled</label>
+        <button id="s-save">Add schedule</button>
+        <button id="s-clear" style="display:none">Cancel</button>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:10px;overflow-x:auto">
+      <table>
+        <thead><tr><th>model</th><th>node</th><th>days</th><th>window</th><th>state now</th><th>next change</th><th>enabled</th><th></th></tr></thead>
+        <tbody id="sched-body"><tr><td colspan="8" class="empty">no schedules yet</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SECTION 4 : ACTION LOG -->
+  <section>
+    <div class="sec-head"><h2>Enforcement log</h2></div>
+    <div class="panel"><div class="log" id="log"><div class="empty">no actions yet</div></div></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const RANGES=["1h","1d","1M","all"]; let range="1d";
+const state={nodes:[],global:null,scheds:[],editId:null,log:[]};
+const fmtN=n=>{if(n==null)return "–";n=+n;
+  if(n>=1e9)return (n/1e9).toFixed(2)+"B";if(n>=1e6)return (n/1e6).toFixed(2)+"M";
+  if(n>=1e3)return (n/1e3).toFixed(1)+"K";return ""+Math.round(n);};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function toast(msg,ok){const t=$("#toast");t.textContent=msg;t.style.borderLeftColor=ok?"var(--ok)":"var(--bad)";
+  t.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),2600);}
+async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error(u+" → "+r.status);return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:"POST",
+  headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):null});
+  if(!r.ok){let d="";try{d=(await r.json()).detail||""}catch(e){}throw new Error(r.status+" "+d);}return r.json();}
+async function jput(u,b){const r=await fetch(u,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+  if(!r.ok){let d="";try{d=(await r.json()).detail||""}catch(e){}throw new Error(r.status+" "+d);}return r.json();}
+async function jdel(u){const r=await fetch(u,{method:"DELETE"});if(!r.ok)throw new Error(r.status);return r.json();}
+
+const STATE_LABEL={offline:"offline",unloaded:"unloaded",idle:"idle",loading:"loading",
+  prefill:"reading prompt",generating:"generating",processing:"processing"};
+const STATE_CLASS={offline:"b-off",unloaded:"b-unloaded",idle:"b-idle",loading:"b-loading",
+  prefill:"b-prefill",generating:"b-generating",processing:"b-processing"};
+function pctBar(v,c){const p=Math.max(0,Math.min(100,+v||0));
+  return `<div class="bar"><div style="width:${p}%;background:${c}"></div></div>`;}
+
+function renderHeader(h){
+  $("#hd-online").textContent=`${h.nodes_online}/${h.nodes_total} online`;
+  $("#hd-dot").className="dot "+(h.nodes_online>0?"on":"off");
+  $("#hd-enforce").textContent=h.schedule_enforce?"schedules: LIVE":"schedules: preview";
+}
+function renderNodes(){
+  const box=$("#nodes");box.innerHTML="";
+  for(const n of state.nodes){
+    const g=n.gpu||{},st=n.stats||{},cur=n.current||{};
+    const stt=STATE_LABEL[n.state]||n.state||"–";
+    const open=n._open?" open":"";
+    const models=(n.models||[]).map(m=>
+      `<span class="chip" title="${esc(m.note||"")}${m.status?(" — "+esc(m.status)):''}">${esc(m.id)}<span class="st">${esc(m.status||"")}</span>
+        <button class="sm" data-act="unload" data-node="${esc(n.name)}" data-model="${esc(m.id)}" title="unload">↓</button></span>`).join("");
+    const nowbox = cur.model?`
+      <div class="nowbox">
+        <div class="t">current request · ${cur.in_progress?"in progress":"active"}${cur.elapsed_s!=null?" · "+cur.elapsed_s+"s":""}${cur.gpu_util_pct!=null?" · GPU "+Math.round(cur.gpu_util_pct)+"%":""}${cur.request_id?(" · #"+cur.request_id):""}</div>
+        <div class="m">${esc(cur.model)}${(cur.in_progress||cur.streamed_bytes!=null)?` <span class="stream" title="streaming"></span>`:""}</div>
+        <div class="row"><span class="l">speed</span><span class="r">${cur.tokens_per_second?cur.tokens_per_second+" tok/s":"–"}</span></div>
+        <div class="row"><span class="l">prompt / output</span><span class="r">${cur.prompt_tokens!=null?cur.prompt_tokens:(cur.input_tokens!=null?cur.input_tokens:"–")} / ${cur.output_tokens!=null?cur.output_tokens:"–"} tok</span></div>
+        ${cur.latency_ms?`<div class="row"><span class="l">latency</span><span class="r">${(cur.latency_ms/1000).toFixed(2)}s</span></div>`:""}
+      </div>`:`
+      <div class="nowbox"><div class="t">current request</div><div class="m" style="color:var(--dim)">none</div></div>`;
+    const unloadedModel=(n.models.find(m=>m.status!=="loaded")||{}).id||"";
+    const det=`
+      <div class="details">
+        <div class="kv-grid">
+          <div class="row"><span class="l">version</span><span class="r">${esc(n.version||"–")}</span></div>
+          <div class="row"><span class="l">endpoint</span><span class="r">${esc(n.endpoint||"–")}</span></div>
+          <div class="row"><span class="l">p50 prompt</span><span class="r">${st.prompt_p50?st.prompt_p50.toFixed(1):"–"} ms</span></div>
+          <div class="row"><span class="l">p95 prompt</span><span class="r">${st.prompt_p95?st.prompt_p95.toFixed(1):"–"} ms</span></div>
+          <div class="row"><span class="l">p99 prompt</span><span class="r">${st.prompt_p99?st.prompt_p99.toFixed(1):"–"} ms</span></div>
+          <div class="row"><span class="l">p50 gen</span><span class="r">${st.gen_p50?st.gen_p50.toFixed(1):"–"} ms</span></div>
+          <div class="row"><span class="l">p95 gen</span><span class="r">${st.gen_p95?st.gen_p95.toFixed(1):"–"} ms</span></div>
+          <div class="row"><span class="l">p99 gen</span><span class="r">${st.gen_p99?st.gen_p99.toFixed(1):"–"} ms</span></div>
+          <div class="row"><span class="l">mem free</span><span class="r">${g.mem_free_mb!=null?fmtN(g.mem_free_mb)+" MB":"–"}</span></div>
+          <div class="row"><span class="l">last error</span><span class="r" style="color:var(--bad)">${esc(n.last_error||"–")}</span></div>
+        </div>
+        <div class="actions">
+          <button data-act="load" data-node="${esc(n.name)}" data-model="${esc(cur.model||unloadedModel)}" ${(cur.model||!unloadedModel)?"disabled":""}>Load model</button>
+          <button class="danger" data-act="unloadall" data-node="${esc(n.name)}">Unload all</button>
+        </div>
+      </div>`;
+    const card=document.createElement("div");
+    card.className="panel node"+open;
+    card.innerHTML=`
+      <div class="nh">
+        <span class="dot ${n.online?"on":"off"}"></span>
+        <div><div class="nm">${esc(n.label||n.name)}</div>
+        <div class="meta">${esc(n.name)} · ${esc(n.endpoint||"")} ${n.version?("· "+esc(n.version)):""}</div></div>
+        <div class="spacer"></div>
+        <span class="badge ${STATE_CLASS[n.state]||"b-unloaded"}">${stt}</span>
+        <span class="toggle" data-toggle="${esc(n.name)}">details ▾</span>
+        <span class="toggle" data-nedit="${esc(n.name)}" title="edit node">✎</span>
+        <span class="toggle" data-ndel="${esc(n.name)}" title="remove node" style="color:var(--bad)">✕</span>
+      </div>
+      <div class="nb">
+        ${g.name?`<div class="row"><span class="l">GPU</span><span class="r">${esc(g.name)}</span></div>`:""}
+        ${g.gpu_util_pct!=null?`<div><div class="row"><span class="l">util</span><span class="r">${g.gpu_util_pct}%</span></div>${pctBar(g.gpu_util_pct,"var(--acc)")}</div>`:""}
+        ${g.mem_total_mb?`<div><div class="row"><span class="l">VRAM</span><span class="r">${fmtN(g.mem_used_mb)}/${fmtN(g.mem_total_mb)} MB · ${g.mem_used_pct!=null?g.mem_used_pct+"%":"–"}</span></div>${pctBar(g.mem_used_pct, (g.mem_used_pct||0)>90?"var(--bad)":(g.mem_used_pct||0)>70?"var(--warn)":"var(--local)")}</div>`:""}
+        <div class="kv-grid">
+          <div class="row"><span class="l">temp</span><span class="r">${g.temp_c!=null?g.temp_c+" °C":"–"}</span></div>
+          <div class="row"><span class="l">power</span><span class="r">${g.power_draw_w!=null?g.power_draw_w+" W":"–"}</span></div>
+          <div class="row"><span class="l">fan</span><span class="r">${g.fan_speed_pct!=null?g.fan_speed_pct+"%":"–"}</span></div>
+          <div class="row"><span class="l">requests</span><span class="r">${st.total_requests!=null?st.total_requests:"–"}</span></div>
+          <div class="row"><span class="l">in tokens</span><span class="r">${fmtN(st.total_input_tokens)}</span></div>
+          <div class="row"><span class="l">out tokens</span><span class="r">${fmtN(st.total_output_tokens)}</span></div>
+        </div>
+        ${models?`<div class="chips">${models}</div>`:""}
+        ${nowbox}
+      </div>${det}`;
+    box.appendChild(card);
+  }
+  $$("#nodes [data-toggle]").forEach(el=>el.onclick=()=>{
+    const nm=el.dataset.toggle;const i=state.nodes.findIndex(n=>n.name===nm);
+    if(i>=0){state.nodes[i]._open=!state.nodes[i]._open;renderNodes();}
+  });
+  $$("#nodes [data-act]").forEach(el=>el.onclick=()=>{
+    const a=el.dataset.act,node=el.dataset.node,model=el.dataset.model;
+    if(a==="unload"&&model)doAction(node,"models/"+encodeURIComponent(model)+"/unload",null,"unload "+model+" @ "+node);
+    else if(a==="unloadall")doAction(node,"unload-all",null,"unload all @ "+node);
+    else if(a==="load"&&model)doAction(node,"models/"+encodeURIComponent(model)+"/load",null,"load "+model+" @ "+node);
+  });
+  $$("#nodes [data-nedit]").forEach(el=>el.onclick=()=>showNodeForm(el.dataset.nedit));
+  $$("#nodes [data-ndel]").forEach(el=>el.onclick=async()=>{
+    const nm=el.dataset.ndel;
+    if(!confirm("Remove node "+nm+"? Its schedules become orphaned."))return;
+    try{await jdel("/api/nodes/"+encodeURIComponent(nm));await loadNodes();toast("removed "+nm);}
+    catch(e){toast("remove failed: "+e.message,false);}});
+}
+async function doAction(node,path,body,label){
+  try{const r=await jpost("/api/nodes/"+node+"/"+path,body);toast((label||path)+" → "+(r.status||"ok"),r.ok!==false);}
+  catch(e){toast((label||path)+" failed: "+e.message,false);}
+}
+function fmtTick(ts,rng){
+  const d=new Date(ts);
+  if(rng==="1h"||rng==="1d")
+    return d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false});
+  return d.toLocaleDateString([],{month:"2-digit",day:"2-digit"});
+}
+// Point-line chart (two series) with time + value axes, SVG-based.
+function lineChart(el,cols,kL,kO,rng){
+  const shown=cols.slice(-60);
+  if(!shown.length){el.innerHTML="";return;}
+  const W=1000,H=240,padL=48,padR=10,padT=10,padB=24;
+  const iw=W-padL-padR,ih=H-padT-padB,n=shown.length;
+  const max=Math.max(1,...shown.map(c=>Math.max(c[kL]||0,c[kO]||0)));
+  const X=i=>n<=1?padL+iw/2:padL+i/(n-1)*iw;
+  const Y=v=>padT+ih-(v/max)*ih;
+  let grid="",ylab="";
+  for(let i=0;i<=4;i++){
+    const v=max*i/4,yy=Y(v);
+    grid+=`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    ylab+=`<text x="${padL-6}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--mut)">${fmtN(v)}</text>`;
+  }
+  let xlab="";
+  [0,Math.floor((n-1)/4),Math.floor((n-1)/2),Math.floor(3*(n-1)/4),n-1].forEach(i=>{
+    const c=shown[i];if(!c)return;
+    xlab+=`<text x="${X(i).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--mut)">${fmtTick(c.ts,rng)}</text>`;
+  });
+  const pts=k=>shown.map((c,i)=>`${X(i).toFixed(1)},${Y(c[k]||0).toFixed(1)}`).join(" ");
+  const dots=(k,cls)=>shown.map((c,i)=>
+    `<circle cx="${X(i).toFixed(1)}" cy="${Y(c[k]||0).toFixed(1)}" r="2.4" fill="var(--${cls})"><title>${esc(c.title)} — ${cls}: ${fmtN(c[k]||0)}</title></circle>`).join("");
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img">
+    ${grid}${ylab}${xlab}
+    <line x1="${padL}" y1="${padT+ih}" x2="${W-padR}" y2="${padT+ih}" stroke="var(--line)" stroke-width="1"/>
+    <polyline points="${pts(kL)}" fill="none" stroke="var(--local)" stroke-width="2" stroke-linejoin="round"/>
+    <polyline points="${pts(kO)}" fill="none" stroke="var(--online)" stroke-width="2" stroke-linejoin="round"/>
+    ${dots(kL,"local")}${dots(kO,"online")}
+  </svg>`;
+}
+function renderGlobal(d){
+  if(!d||!d.ok){$("#g-stats").innerHTML=`<div class="empty">stats unavailable${d&&d.error?": "+esc(d.error):""}</div>`;return;}
+  const t=d.totals||{};
+  const cards=[
+    {k:"requests",v:fmtN(t.req),s:`local ${fmtN(t.local_req)} · online ${fmtN(t.online_req)}`},
+    {k:"tokens",v:fmtN(t.tok),s:`local ${fmtN(t.local_tok)} · online ${fmtN(t.online_tok)}`},
+    {k:"local share (tok)",v:(t.local_pct??0)+"%",s:`req share ${t.local_req_pct??0}%`},
+    {k:"input / output",v:fmtN((t.local_in||0)+(t.online_in||0))+" / "+fmtN((t.local_out||0)+(t.online_out||0)),s:"prompt / completion"},
+    {k:"failed",v:fmtN(t.fail),s:`of ${fmtN(t.req)} requests`},
+  ];
+  if(d.span_days!=null)cards.push({k:"span",v:d.span_days+"d",s:d.days?d.days.length+" days w/ data":""});
+  $("#g-stats").innerHTML=cards.map(c=>`<div class="panel stat"><div class="k">${c.k}</div><div class="v">${c.v}</div><div class="s">${c.s}</div></div>`).join("");
+  const cols=(d.buckets||[]).map(b=>({ts:b.ts,title:new Date(b.ts).toLocaleString(),
+    local_req:b.local_req,online_req:b.online_req,local_tok:b.local_tok,online_tok:b.online_tok}));
+  lineChart($("#chart-req"),cols,"local_req","online_req",range);
+  lineChart($("#chart-tok"),cols,"local_tok","online_tok",range);
+  const mrow=(m)=>{const e=Object.entries(m||{});if(!e.length)return '<div class="empty">–</div>';
+    const mx=Math.max(...e.map(x=>x[1]));
+    return e.map(([k,v])=>`<div class="mrow"><span class="name" title="${esc(k)}">${esc(k)}</span>
+      <span class="bar"><div style="width:${100*v/mx}%;background:var(--acc)"></div></span><span class="n">${fmtN(v)}</span></div>`).join("");};
+  $("#m-local").innerHTML=mrow(d.local_models);
+  $("#m-online").innerHTML=mrow(d.online_models);
+}
+function daysStr(days){let s="";for(let i=0;i<7;i++)s+=days&&days[i]==="1"?"•":"·";return s;}
+function renderSchedules(){
+  const body=$("#sched-body");
+  if(!state.scheds.length){body.innerHTML='<tr><td colspan="8" class="empty">no schedules yet — add one above</td></tr>';return;}
+  body.innerHTML=state.scheds.map(s=>`<tr>
+    <td>${esc(s.model)}</td><td>${esc(s.node)}</td>
+    <td>${daysStr(s.days)}</td><td>${esc(s.on_time)} → ${esc(s.off_time)}</td>
+    <td class="${s.active_now?"on":"offw"}">${s.active_now?"ON now":"off now"}</td>
+    <td class="offw">${s.next_transition?new Date(s.next_transition).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):"–"}</td>
+    <td><span class="sw ${s.enabled?"on":"off"}" data-sw="${s.id}">${s.enabled?"ON":"off"}</span></td>
+    <td style="white-space:nowrap"><button class="sm" data-edit="${s.id}">edit</button> <button class="sm danger" data-del="${s.id}">del</button></td>
+  </tr>`).join("");
+  $$("#sched-body [data-sw]").forEach(el=>el.onclick=async()=>{
+    const s=state.scheds.find(x=>x.id==el.dataset.sw);if(!s)return;
+    try{await jput("/api/schedules/"+s.id,{enabled:!s.enabled});loadScheds();}catch(e){toast(e.message,false);}
+  });
+  $$("#sched-body [data-del]").forEach(el=>el.onclick=async()=>{
+    if(!confirm("delete this schedule?"))return;
+    try{await jdel("/api/schedules/"+el.dataset.del);loadScheds();}catch(e){toast(e.message,false);}
+  });
+  $$("#sched-body [data-edit]").forEach(el=>el.onclick=()=>{
+    const s=state.scheds.find(x=>x.id==el.dataset.edit);if(!s)return;
+    state.editId=s.id;$("#s-model").value=s.model;$("#s-node").value=s.node;
+    $("#s-on").value=s.on_time;$("#s-off").value=s.off_time;$("#s-enabled").checked=!!s.enabled;
+    $$("#s-days input").forEach(cb=>cb.checked=s.days&&s.days[+cb.value]==="1");
+    $("#s-save").textContent="Save";$("#s-clear").style.display="";
+  });
+}
+function renderLog(){
+  const box=$("#log");
+  if(!state.log.length){box.innerHTML='<div class="empty">no actions yet</div>';return;}
+  box.innerHTML=state.log.map(e=>{
+    const cls=e.action.includes("error")?"error":e.action.includes("preview")?"preview":e.action;
+    return `<div class="e"><span class="t">${(e.ts||"").slice(11,19)}</span>
+      <span class="a ${cls}">${esc(e.action)}</span>
+      <span>${esc(e.node)} · ${esc(e.model)}${e.status?(" · "+esc(e.status)):""}</span></div>`;
+  }).join("");
+}
+function populateNodeSel(){
+  const sel=$("#s-node");const cur=sel.value;
+  sel.innerHTML=state.nodes.map(n=>`<option value="${esc(n.name)}">${esc(n.label||n.name)}</option>`).join("");
+  if(cur)sel.value=cur;
+}
+async function loadScheds(){try{const d=await jget("/api/schedules");state.scheds=d.schedules;
+  $("#sched-enforce").textContent=d.enforce?"LIVE":"preview";renderSchedules();}catch(e){}}
+async function loadLog(){try{const d=await jget("/api/actions-log");state.log=d.log;renderLog();}catch(e){}}
+async function loadGlobal(){try{const d=await jget("/api/global?range="+range);state.global=d;renderGlobal(d);}catch(e){}}
+async function loadNodes(){try{const d=await jget("/api/nodes");
+  state.nodes=d.nodes.map(n=>{const p=state.nodes.find(x=>x.name===n.name);n._open=p?p._open:false;return n;});
+  renderNodes();populateNodeSel();
+  const h={nodes_online:state.nodes.filter(n=>n.online).length,nodes_total:state.nodes.length,schedule_enforce:true};
+  try{Object.assign(h,await jget("/api/health"));}catch(e){}
+  renderHeader(h);
+  $("#hd-upd").textContent="updated "+new Date().toLocaleTimeString();
+}catch(e){$("#hd-upd").textContent="poll error";}}
+let nodeEditName=null;
+function showNodeForm(name){
+  nodeEditName=name;$("#node-form-panel").style.display="";
+  const n=name?state.nodes.find(x=>x.name===name):null;
+  if(n){$("#n-name").value=n.name;$("#n-label").value=n.label||"";$("#n-ip").value=n.ip||"";$("#n-port").value=n.port||8080;$("#n-save").textContent="Save";}
+  else{$("#n-name").value="";$("#n-label").value="";$("#n-ip").value="";$("#n-port").value=8080;$("#n-save").textContent="Add node";}
+  $("#n-clear").style.display="";
+}
+$("#node-add-btn").onclick=()=>showNodeForm(null);
+$("#n-clear").onclick=()=>{nodeEditName=null;$("#node-form-panel").style.display="none";};
+$("#n-save").onclick=async()=>{
+  const body={name:$("#n-name").value.trim(),label:$("#n-label").value.trim(),
+    ip:$("#n-ip").value.trim(),port:+$("#n-port").value||8080};
+  if(!body.name||!body.ip){toast("name and ip are required",false);return;}
+  try{
+    if(nodeEditName!=null){await jput("/api/nodes/"+encodeURIComponent(nodeEditName),body);}
+    else{await jpost("/api/nodes",body);}
+    $("#n-clear").onclick();await loadNodes();toast("node saved");
+  }catch(e){toast(e.message,false);}
+};
+$("#s-clear").onclick=()=>{state.editId=null;$("#s-save").textContent="Add schedule";$("#s-clear").style.display="none";
+  $("#s-model").value="";$("#s-model").focus();};
+$("#s-save").onclick=async()=>{
+  const days=Array.from({length:7},(_,i)=>$$("#s-days input")[i].checked?"1":"0").join("");
+  const body={model:$("#s-model").value.trim(),node:$("#s-node").value,days,
+    on_time:$("#s-on").value,off_time:$("#s-off").value,enabled:$("#s-enabled").checked};
+  if(!body.model){toast("model required",false);return;}
+  try{
+    if(state.editId!=null){await jput("/api/schedules/"+state.editId,body);}
+    else{await jpost("/api/schedules",body);}
+    $("#s-clear").onclick();loadScheds();toast("schedule saved");
+  }catch(e){toast(e.message,false);}
+};
+$$("#rangebar button").forEach(b=>b.onclick=()=>{
+  range=b.dataset.r;$$("#rangebar button").forEach(x=>x.classList.toggle("active",x===b));loadGlobal();
+});
+(async()=>{await loadNodes();await loadGlobal();await loadScheds();await loadLog();})();
+setInterval(loadNodes,2000);
+setInterval(loadGlobal,30000);
+setInterval(loadScheds,10000);
+setInterval(loadLog,8000);
+</script>
+</body>
+</html>

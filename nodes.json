@@ -1,0 +1,4 @@
+[
+  {"name": "worker01", "label": "Worker 01 (A4000)", "ip": "192.168.1.101", "port": 8080},
+  {"name": "worker02", "label": "Worker 02 (RTX 3090)", "ip": "192.168.1.102", "port": 8080}
+]
